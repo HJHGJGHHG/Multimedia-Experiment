@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" remoteFilesAllowedToDisappearOnAutoupload="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="root@region-3.autodl.com:41754" remoteFilesAllowedToDisappearOnAutoupload="false">
     <serverData>
       <paths name="root@region-11.autodl.com:20362">
         <serverdata>
@@ -26,7 +26,7 @@
       <paths name="root@region-3.autodl.com:41754">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/root/autodl-tmp/Multimedia-Experiment" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
@@ -38,5 +38,6 @@
         </serverdata>
       </paths>
     </serverData>
+    <option name="myAutoUpload" value="ALWAYS" />
   </component>
 </project>
