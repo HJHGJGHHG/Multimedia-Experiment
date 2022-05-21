@@ -1,9 +1,19 @@
+import math
 import warnings
 import numpy as np
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 import matplotlib.pyplot as plt
+import pickle as pkl
 from cv2 import resize, GaussianBlur, subtract, INTER_LINEAR, INTER_NEAREST, cvtColor, COLOR_BGR2GRAY
+
 warnings.filterwarnings("ignore")  # 忽略警告
+
+
+# 计算余弦相似度
+def cosine_similarity(x, y):
+    num = x.dot(y.T)
+    denom = np.linalg.norm(x) * np.linalg.norm(y)
+    return num / denom
 
 
 def generateBaseImage(image, sigma_0, camara_sigma):
@@ -267,7 +277,6 @@ def LocateKeyPoint(DoG, sigma, GuassianPyramid, n, BinNum=36, contrastThreshold=
     SIFT_ORI_PEAK_RATIO = 0.8
     
     SIFT_INT_DESCR_FCTR = 512.0
-    # SIFT_FIXPT_SCALE = 48
     SIFT_FIXPT_SCALE = 1
     
     KeyPoints = []
@@ -528,53 +537,77 @@ def SIFT(img, showDoGimgs=False):
 def getClusterCentures(features, num_words, target_path):
     des_matrix = np.zeros((1, 128))
     target_id = target_path.split("/")[-1].split(".")[0]
+    print("构造描述符矩阵...")
     assert target_id in features.keys()
     for k, v in features.items():
         if k != target_id:
             des_matrix = np.row_stack((des_matrix, np.array(v)))
+        if (int(k)+1) % 100 == 0:
+            print("Finish: {:d}/{:d}".format(int(k)+1, len(features)-1))
     des_matrix = des_matrix[1:, :]
     
     # 计算聚类中心  构造视觉单词词典
-    kmeans = KMeans(n_clusters=num_words, random_state=33)
+    print("进行KMeans聚类...")
+    # kmeans = KMeans(n_clusters=num_words)
+    kmeans = MiniBatchKMeans(n_clusters=num_words, init_size=3 * num_words)
     kmeans.fit(des_matrix)
-    centres = kmeans.cluster_centers_  # 视觉聚类中心
-    
-    return centres, des_matrix
+    print("聚类完成...")
+    return des_matrix, kmeans
 
 
-# 将特征描述转换为特征向量
-def des2feature(des, num_words, centers):
-    '''
-    des: 单幅图像的SIFT特征描述
-    num_words: 视觉单词数/聚类中心数
-    centers: 聚类中心坐标   num_words*128
-    return: feature vector 1*num_words
-    '''
-    img_feature_vec = np.zeros((1, num_words), 'float32')
-    for i in range(len(des)):
-        feature_k_rows = np.ones((num_words, 128), 'float32')
-        feature = des[i]
-        feature_k_rows = feature_k_rows * feature
-        feature_k_rows = np.sum((feature_k_rows - centers) ** 2, 1)
-        index = np.argmax(feature_k_rows)
-        img_feature_vec[0][index] += 1
-    return img_feature_vec
+def tf_idf(z, IDF):
+    tf = []
+    z_new = []
+    a = 0
+    for i in z:
+        a = a + i
+    for i in z:
+        tf.append(i / (a + 1))
+    for i in range(len(z)):
+        z_new.append(tf[i] * IDF[i])
+    z_new = np.array(z_new)
+    return z_new
 
 
-def get_all_features(features, num_words, centers):
+# 将特征描述转换为直方图
+def des2bins(des, num_words, kmeans):
+    # 获取直方图
+    k_pre_features = kmeans.predict(des)
+    img_bow_hist = np.bincount(k_pre_features, minlength=num_words)
+    return img_bow_hist
+
+
+def get_all_features(features, num_words, kmeans):
     # 获取所有图片的特征向量
-    allvec = np.zeros((len(features.keys()), num_words), 'float32')
+    print("获取所有图片表征向量...")
+    Z = []  # 直方图
     for k, v in features.items():
-        allvec[int(k)] = des2feature(centers=centers, des=v, num_words=num_words)
-    return allvec
+        Z.append(des2bins(des=v, num_words=num_words, kmeans=kmeans))
+    
+    # TF-IDF
+    F = [0] * num_words
+    IDF = []
+    for i in range(len(Z)):
+        for j in range(len(Z[0])):
+            if (Z[i][j] != 0):
+                F[j] += 1
+    # 计算逆向文件频率 IDF
+    for j in range(len(Z[0])):
+        IDF.append(math.log(1000 / (F[j] + 1)))
+    
+    allvec = {}
+    for i, z in enumerate(Z):
+        allvec[str(i)] = tf_idf(z, IDF)
+    return allvec, IDF
 
 
 def getNearestImg(feature, allvec, num_close):
-    features = np.ones((allvec.shape[0], len(feature)), 'float32')
-    features = features * feature
-    dist = np.sum((features - allvec) ** 2, 1)
-    dist_index = np.argsort(dist)
-    return dist_index[:num_close]
+    p = []
+    for k, v in allvec.items():
+        p.append(cosine_similarity(feature, v))
+    p = np.array(p).reshape(1, -1)
+    index = np.argsort(-p)[0]
+    return index[1:num_close + 1]
 
 
 def showImg(target_path, index, file_paths):
@@ -591,17 +624,16 @@ def showImg(target_path, index, file_paths):
 
 
 # 暴力搜索
-def retrieval_img(target_path, features, centers, allvec, file_paths):
-    num_close = 10 + 1
-    num_words = 3
+def retrieval_img(target_path, features, kmeans, allvec, IDF, file_paths, num_words):
+    print("图片检索...")
+    num_close = 10
     target_id = target_path.split("/")[-1].split(".")[0]
-    feature = des2feature(des=features[target_id], centers=centers, num_words=num_words)
+    feature = tf_idf(des2bins(des=features[target_id], num_words=num_words, kmeans=kmeans), IDF)
     sorted_index = getNearestImg(feature, allvec, num_close).tolist()
-    sorted_index.remove(int(target_id))
     showImg(target_path, sorted_index, file_paths)
 
 
 def Image_Retrieval(target_path, features, file_paths, num_words=3):
-    centers, des_matrix = getClusterCentures(features, num_words=num_words, target_path=target_path)
-    allvec = get_all_features(features, num_words=3, centers=centers)
-    retrieval_img(target_path, features, centers, allvec, file_paths)
+    des_matrix, kmeans = getClusterCentures(features, num_words=num_words, target_path=target_path)
+    allvec, IDF = get_all_features(features, num_words=num_words, kmeans=kmeans)
+    retrieval_img(target_path, features, kmeans, allvec, IDF, file_paths, num_words)
