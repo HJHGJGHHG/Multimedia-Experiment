@@ -284,7 +284,6 @@ def LocateKeyPoint(DoG, sigma, GuassianPyramid, n, BinNum=36, contrastThreshold=
     S = len(DoG[0])
     for o in range(O):
         for s in range(1, S - 1):
-            # 第一步：设定阈值
             threshold = 0.5 * contrastThreshold / (n * 255 * SIFT_FIXPT_SCALE)  # 用于阈值化，去噪
             img_prev = DoG[o][s - 1]
             img = DoG[o][s]
@@ -298,7 +297,7 @@ def LocateKeyPoint(DoG, sigma, GuassianPyramid, n, BinNum=36, contrastThreshold=
                                        max(0, j - 1):min(j + 2, img.shape[1])]
                     eight_neiborhood_next = img_next[max(0, i - 1):min(i + 2, img_next.shape[0]),
                                             max(0, j - 1):min(j + 2, img_next.shape[1])]
-                    # 第二步：阈值化，在高斯差分金字塔中找极值
+                    # 阈值化，在高斯差分金字塔中找极值
                     if np.abs(val) > threshold and \
                             ((val > 0 and (val >= eight_neiborhood_prev).all() and (val >= eight_neiborhood).all() and (
                                     val >= eight_neiborhood_next).all())
@@ -498,8 +497,7 @@ def calcDescriptors(gpyr, keypoints, SIFT_DESCR_WIDTH=4, SIFT_DESCR_HIST_BINS=8)
 
 def SIFT(img, showDoGimgs=False):
     # 若为三通道，转灰度图
-    
-    # 1. 建立高斯差分金字塔，
+    #  建立高斯差分金字塔，
     SIFT_SIGMA = 1.6
     CAMERA_SIGMA = 0.5  # 假设的摄像头的尺度
     n = 3
@@ -584,7 +582,7 @@ def get_all_features(features, num_words, kmeans):
     for k, v in features.items():
         Z.append(des2bins(des=v, num_words=num_words, kmeans=kmeans))
     
-    # TF-IDF
+    # IDF
     F = [0] * num_words
     IDF = []
     for i in range(len(Z)):
